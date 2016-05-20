@@ -68,13 +68,20 @@ public class CloudFoundryDeployerAutoConfiguration {
 
 	@Bean
 	@ConditionalOnMissingBean(AppDeployer.class)
-	public AppDeployer appDeployer(CloudFoundryDeployerProperties properties, CloudFoundryOperations operations, CloudFoundryClient client) {
-		return new CloudFoundryAppDeployer(properties, operations, client);
+	public AppDeployer appDeployer(CloudFoundryDeployerProperties properties, CloudFoundryOperations operations,
+								   CloudFoundryClient client, DeployerEventService deployerEventService) {
+		return new CloudFoundryAppDeployer(properties, operations, client, deployerEventService);
 	}
 
 	@Bean
 	@ConditionalOnMissingBean(TaskLauncher.class)
 	public TaskLauncher taskLauncher(CloudFoundryClient client) {
 		return new CloudFoundryTaskLauncher(client);
+	}
+
+	@Bean
+	@ConditionalOnMissingBean(DeployerEventService.class)
+	public DeployerEventService deployerEventService() {
+		return new DeployerEventService();
 	}
 }

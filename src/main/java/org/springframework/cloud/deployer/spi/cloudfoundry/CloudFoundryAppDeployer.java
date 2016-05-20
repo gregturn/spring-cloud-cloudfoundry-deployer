@@ -25,6 +25,8 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -68,13 +70,16 @@ public class CloudFoundryAppDeployer implements AppDeployer {
 
 	private final CloudFoundryClient client;
 
+	private final DeployerEventService deployerEventService;
+
 	private static final Log logger = LogFactory.getLog(CloudFoundryAppDeployer.class);
 
 	public CloudFoundryAppDeployer(CloudFoundryDeployerProperties properties, CloudFoundryOperations operations,
-								   CloudFoundryClient client) {
+								   CloudFoundryClient client, DeployerEventService deployerEventService) {
 		this.properties = properties;
 		this.operations = operations;
 		this.client = client;
+		this.deployerEventService = deployerEventService;
 	}
 
 	@Override
@@ -147,8 +152,19 @@ public class CloudFoundryAppDeployer implements AppDeployer {
                     .start(StartApplicationRequest.builder()
                         .name(name)
                         .build())
-					.doOnSuccess(v -> logger.info(String.format("Started app %s", name)))
-					.doOnError(e -> logger.error(String.format("Failed to start app %s", name), e))
+					.doOnSuccess(v -> {
+						logger.info(String.format("Started app %s", name));
+						deployerEventService.appDeploymentSucceeded(name, Collections.singletonList("Started app " + name));
+					})
+					.doOnError(e -> {
+						logger.error(String.format("Failed to start app %s", name), e);
+						deployerEventService.appDeploymentFailed(name,
+								concat(
+									Stream.of("Failed to start app " + name, e.getMessage()),
+									Stream.of(e.getStackTrace())
+										.map(StackTraceElement::toString))
+								.collect(Collectors.toList()));
+					})
                 );
 		} catch (IOException e) {
 			return Mono.error(e);
@@ -168,8 +184,22 @@ public class CloudFoundryAppDeployer implements AppDeployer {
 							.name(id)
 							.build()
 			)
-			.doOnSuccess(v -> logger.info(String.format("Sucessfully undeployed app %s", id)))
-			.doOnError(e -> logger.error(String.format("Failed to undeploy app %s", id), e));
+			.doOnSuccess(v -> {
+				final String message = String.format("Sucessfully undeployed app %s", id);
+				logger.info(message);
+				deployerEventService.appUndeploymentSucceeded(id, Collections.singletonList(message));
+			})
+			.doOnError(e -> {
+				final String message = String.format("Failed to undeploy app %s", id);
+				logger.error(message, e);
+				deployerEventService.appUndeploymentFailed(id,
+						concat(
+								Stream.of(message, e.getMessage()),
+								Stream.of(e.getStackTrace())
+										.map(StackTraceElement::toString))
+								.collect(Collectors.toList()));
+
+			});
 	}
 
 	@Override

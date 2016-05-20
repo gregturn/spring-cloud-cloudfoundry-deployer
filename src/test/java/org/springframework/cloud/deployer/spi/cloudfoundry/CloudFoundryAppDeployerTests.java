@@ -82,6 +82,8 @@ public class CloudFoundryAppDeployerTests {
 
 	CloudFoundryAppDeployer deployer;
 
+	DeployerEventService deployerEventService;
+
 	@Rule public ExpectedException thrown = none();
 
 	@Before
@@ -92,7 +94,8 @@ public class CloudFoundryAppDeployerTests {
 		applications = mock(Applications.class);
 		applicationsV2 = mock(ApplicationsV2.class);
 		services = mock(Services.class);
-		deployer = new CloudFoundryAppDeployer(new CloudFoundryDeployerProperties(), operations, client);
+		deployerEventService = mock(DeployerEventService.class);
+		deployer = new CloudFoundryAppDeployer(new CloudFoundryDeployerProperties(), operations, client, deployerEventService);
 	}
 
 	@Test
@@ -146,7 +149,7 @@ public class CloudFoundryAppDeployerTests {
 		appDefinitionProperties.put(fooKey, fooVal);
 		appDefinitionProperties.put(barKey, barVal);
 
-		deployer = new CloudFoundryAppDeployer(properties, operations, client);
+		deployer = new CloudFoundryAppDeployer(properties, operations, client, deployerEventService);
 
 		given(operations.applications()).willReturn(applications);
 
@@ -195,6 +198,9 @@ public class CloudFoundryAppDeployerTests {
 				}})
 				.build());
 		verifyNoMoreInteractions(applicationsV2);
+
+		then(deployerEventService).should().appDeploymentSucceeded("test", Collections.singletonList("Started app test"));
+		verifyNoMoreInteractions(deployerEventService);
 	}
 
 	@Test
@@ -260,6 +266,10 @@ public class CloudFoundryAppDeployerTests {
 				.serviceInstanceName("mysql-service")
 				.build());
 		verifyNoMoreInteractions(services);
+
+
+		then(deployerEventService).should().appDeploymentSucceeded("test", Collections.singletonList("Started app test"));
+		verifyNoMoreInteractions(deployerEventService);
 	}
 
 	@Test
@@ -288,6 +298,9 @@ public class CloudFoundryAppDeployerTests {
 
 		// then
 		// JUnit's exception handlers must be before the actual code is run
+
+		then(deployerEventService).should().appDeploymentSucceeded("test", Collections.singletonList("Started app test"));
+		verifyNoMoreInteractions(deployerEventService);
 	}
 
 	@Test
@@ -314,6 +327,42 @@ public class CloudFoundryAppDeployerTests {
 			.deleteRoutes(true)
 			.build());
 		verifyNoMoreInteractions(applications);
+
+
+		then(deployerEventService).should().appUndeploymentSucceeded("test", Collections.singletonList("Sucessfully undeployed app test"));
+		verifyNoMoreInteractions(deployerEventService);
+	}
+
+	@Test
+	public void shouldHandleFailureToUndeploy() throws InterruptedException, JsonProcessingException {
+
+		// given
+		given(operations.applications()).willReturn(applications);
+		given(applications.delete(any())).willReturn(Mono.error(new RuntimeException("Failed to delete app")));
+
+		thrown.expect(RuntimeException.class);
+
+		// when
+		final TestSubscriber<Void> testSubscriber = new TestSubscriber<>();
+
+		deployer.asyncUndeploy("test")
+				.subscribe(testSubscriber);
+
+		testSubscriber.assertError(RuntimeException.class, "Failed to delete app").verify(Duration.ofSeconds(10));
+
+		// then
+		then(operations).should().applications();
+		verifyNoMoreInteractions(operations);
+
+		then(applications).should().delete(DeleteApplicationRequest.builder()
+				.name("test")
+				.deleteRoutes(true)
+				.build());
+		verifyNoMoreInteractions(applications);
+
+
+		then(deployerEventService).should().appUndeploymentFailed("test", any());
+		verifyNoMoreInteractions(deployerEventService);
 	}
 
 	@Test
